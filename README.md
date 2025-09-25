@@ -317,6 +317,268 @@ python scripts/train.py --model my-model --model-name "my-organization/my-genomi
 python scripts/quantize.py --model-name "my-organization/my-genomic-model" --method bnb
 ```
 
+## Supported Quantization Methods
+
+GLMAccBench supports multiple state-of-the-art quantization methods optimized for genomic language models. Each method offers different trade-offs between model size, inference speed, and accuracy.
+
+### BitsAndBytes (BnB)
+
+**Method ID**: `bnb`
+
+BitsAndBytes provides efficient 4-bit and 8-bit quantization with minimal accuracy loss. It's particularly well-suited for memory-constrained environments and supports both training and inference.
+
+**Features:**
+- **4-bit quantization**: Uses NF4 (Normal Float 4) format for optimal precision
+- **8-bit quantization**: Uses INT8 with outlier detection
+- **Dynamic quantization**: No calibration data required
+- **Training support**: Supports QLoRA (Quantized Low-Rank Adaptation)
+
+**Configuration Parameters:**
+```python
+@dataclass
+class BnBConfig(QuantizationConfig):
+    method: str = "bnb"
+    bits: int = 4                           # 4 or 8 bits
+    bnb_4bit_compute_dtype: str = "bfloat16" # Compute dtype for 4-bit
+    bnb_4bit_use_double_quant: bool = True   # Double quantization for better compression
+    bnb_4bit_quant_type: str = "nf4"        # Quantization type: "fp4" or "nf4"
+    llm_int8_threshold: float = 6.0         # Threshold for 8-bit outlier detection
+```
+
+**Usage Examples:**
+```bash
+# 4-bit quantization with NF4
+python scripts/quantize.py --method bnb --bits 4
+
+# 8-bit quantization
+python scripts/quantize.py --method bnb --bits 8
+
+# Custom configuration
+python scripts/quantize.py --method bnb --bits 4 --bnb-4bit-quant-type fp4
+```
+
+**Best for:** Memory-constrained inference, training with QLoRA, quick quantization without calibration data.
+
+### W4A16 (Weight-4bit, Activation-16bit)
+
+**Method ID**: `w4a16`
+
+W4A16 quantizes model weights to 4-bit while keeping activations in 16-bit precision. This provides excellent inference speedup with minimal accuracy degradation.
+
+**Features:**
+- **Weight quantization**: 4-bit weights for significant memory reduction
+- **Full precision activations**: 16-bit activations maintain model quality
+- **Group-wise quantization**: Supports different group sizes for optimal trade-offs
+- **Calibration-based**: Uses calibration data for optimal quantization parameters
+
+**Configuration Parameters:**
+```python
+@dataclass
+class W4A16Config(QuantizationConfig):
+    method: str = "w4a16"
+    bits: int = 4
+    calibration_samples: int = 512
+    ignore: list = None  # Layers to skip quantization
+```
+
+**Usage Examples:**
+```bash
+# Basic W4A16 quantization
+python scripts/quantize.py --method w4a16
+
+# With custom calibration samples
+python scripts/quantize.py --method w4a16 --calibration-samples 1024
+
+# Ignore specific layers
+python scripts/quantize.py --method w4a16 --ignore-layers embeddings classifier
+```
+
+**Best for:** Inference optimization, balanced memory/accuracy trade-off, deployment scenarios.
+
+### W4A4 (Weight-4bit, Activation-4bit)
+
+**Method ID**: `w4a4`
+
+W4A4 provides maximum compression by quantizing both weights and activations to 4-bit precision. Offers the smallest model size but requires careful calibration.
+
+**Features:**
+- **Full 4-bit quantization**: Both weights and activations quantized
+- **Maximum compression**: Smallest model size possible
+- **Advanced calibration**: Requires high-quality calibration data
+- **Hardware acceleration**: Optimized for specialized inference hardware
+
+**Configuration Parameters:**
+```python
+@dataclass
+class W4A4Config(QuantizationConfig):
+    method: str = "w4a4"
+    bits: int = 4
+    calibration_samples: int = 512
+    ignore: list = None
+```
+
+**Usage Examples:**
+```bash
+# Full 4-bit quantization
+python scripts/quantize.py --method w4a4
+
+# With high-quality calibration data
+python scripts/quantize.py --method w4a4 --calibration-samples 2048
+```
+
+**Best for:** Extreme compression requirements, specialized hardware deployment, edge computing.
+
+### W8A8 (Weight-8bit, Activation-8bit)
+
+**Method ID**: `w8a8`
+
+W8A8 uses SmoothQuant technique combined with 8-bit quantization for both weights and activations. Provides good compression with better accuracy preservation than 4-bit methods.
+
+**Features:**
+- **SmoothQuant integration**: Uses activation smoothing for better quantization
+- **8-bit precision**: Better accuracy than 4-bit methods
+- **Balanced trade-off**: Good compression with minimal accuracy loss
+- **Robust quantization**: Less sensitive to calibration data quality
+
+**Configuration Parameters:**
+```python
+@dataclass
+class W8A8Config(QuantizationConfig):
+    method: str = "w8a8"
+    bits: int = 8
+    smoothquant_alpha: float = 0.8  # SmoothQuant smoothing parameter
+    calibration_samples: int = 512
+    ignore: list = None
+```
+
+**Usage Examples:**
+```bash
+# W8A8 with SmoothQuant
+python scripts/quantize.py --method w8a8
+
+# Custom smoothing parameter
+python scripts/quantize.py --method w8a8 --smoothquant-alpha 0.5
+
+# More calibration samples for better quality
+python scripts/quantize.py --method w8a8 --calibration-samples 1024
+```
+
+**Best for:** High-accuracy requirements, production deployments, when 4-bit accuracy is insufficient.
+
+### GPTQ (Gradient-based Post-Training Quantization)
+
+**Method ID**: `gptq`
+
+GPTQ uses gradient information to optimize quantization parameters, providing excellent accuracy preservation with 4-bit quantization.
+
+**Features:**
+- **Gradient-based optimization**: Uses second-order information for optimal quantization
+- **Group-wise quantization**: Configurable group sizes for fine-tuned compression
+- **High accuracy**: Minimal accuracy loss compared to naive quantization
+- **Flexible bit widths**: Supports 2, 3, 4, and 8-bit quantization
+
+**Configuration Parameters:**
+```python
+@dataclass
+class GPTQConfig(QuantizationConfig):
+    method: str = "gptq"
+    bits: int = 4
+    group_size: int = 128        # Group size for quantization
+    damp_percent: float = 0.01   # Damping factor for numerical stability
+    calibration_samples: int = 512
+    ignore: list = None
+```
+
+**Usage Examples:**
+```bash
+# Standard GPTQ 4-bit
+python scripts/quantize.py --method gptq --bits 4
+
+# Custom group size and damping
+python scripts/quantize.py --method gptq --group-size 64 --damp-percent 0.005
+
+# 3-bit quantization for maximum compression
+python scripts/quantize.py --method gptq --bits 3 --group-size 32
+```
+
+**Best for:** High-accuracy quantization, research applications, when calibration data is available.
+
+### AWQ (Activation-aware Weight Quantization)
+
+**Method ID**: `awq`
+
+AWQ protects salient weights based on activation statistics, providing excellent accuracy with 4-bit quantization by keeping important weights at higher precision.
+
+**Features:**
+- **Activation-aware**: Uses activation statistics to identify important weights
+- **Salient weight protection**: Keeps critical weights at higher precision
+- **Excellent accuracy**: Superior accuracy compared to naive 4-bit quantization
+- **Efficient inference**: Optimized for fast inference on various hardware
+
+**Configuration Parameters:**
+```python
+@dataclass
+class AWQConfig(QuantizationConfig):
+    method: str = "awq"
+    bits: int = 4
+    group_size: int = 128
+    zero_point: bool = True      # Use zero-point quantization
+    calibration_samples: int = 512
+    ignore: list = None
+```
+
+**Usage Examples:**
+```bash
+# Standard AWQ quantization
+python scripts/quantize.py --method awq
+
+# Custom group size
+python scripts/quantize.py --method awq --group-size 64
+
+# Without zero-point quantization
+python scripts/quantize.py --method awq --zero-point false
+```
+
+**Best for:** High-accuracy 4-bit quantization, production deployments, when preserving model quality is critical.
+
+### Comparison Table
+
+| Method | Bits | Calibration Required | Training Support | Best Use Case |
+|--------|------|---------------------|------------------|---------------|
+| **BnB** | 4/8 | No | Yes (QLoRA) | Quick quantization, training |
+| **W4A16** | 4 | Yes | No | Inference optimization |
+| **W4A4** | 4 | Yes | No | Maximum compression |
+| **W8A8** | 8 | Yes | No | High accuracy needs |
+| **GPTQ** | 4 | Yes | No | Research, high accuracy |
+| **AWQ** | 4 | Yes | No | Production, quality critical |
+
+### Choosing the Right Method
+
+**For quick experimentation:**
+```bash
+python scripts/quantize.py --method bnb --bits 4
+```
+
+**For production deployment:**
+```bash
+python scripts/quantize.py --method awq --calibration-samples 1024
+```
+
+**For maximum compression:**
+```bash
+python scripts/quantize.py --method w4a4 --calibration-samples 2048
+```
+
+**For training/fine-tuning:**
+```bash
+python scripts/quantize.py --method bnb --bits 4  # Then use for QLoRA training
+```
+
+**For high-accuracy requirements:**
+```bash
+python scripts/quantize.py --method gptq --bits 4 --group-size 128
+```
+
 ## Adding New Quantization Methods
 
 The framework supports multiple quantization methods through a unified interface. All quantization methods must inherit from the `BaseQuantizer` class and implement its abstract methods.
