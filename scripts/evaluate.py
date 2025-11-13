@@ -13,7 +13,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.models import NucleotideTransformer, NucleotideTransformerConfig
+from src.model import NucleotideTransformer, NucleotideTransformerConfig
 from src.data import DataLoader, DataConfig
 from src.evaluation import Evaluator, EvaluationConfig
 from src.utils import load_config

@@ -25,64 +25,37 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-## Project Structure
-
-```
-GLMAccBench/
-├── config/                    # Configuration files
-│   ├── models/               # Model configurations
-│   ├── quantization/         # Quantization configurations
-│   └── training/             # Training configurations
-├── src/                      # Source code
-│   ├── models/              # Model implementations
-│   ├── quantization/        # Quantization methods
-│   ├── training/            # Training utilities
-│   ├── evaluation/          # Evaluation utilities
-│   ├── data/               # Data handling
-│   └── utils/              # Common utilities
-├── scripts/                 # Entry point scripts
-│   ├── train.py
-│   ├── quantize.py
-│   ├── evaluate.py
-│   └── download.py
-├── models/                  # Downloaded models
-├── datasets/                # Downloaded datasets
-├── quantized_models/        # Quantized model outputs
-├── results/                 # Training results
-└── evaluation_results/      # Evaluation outputs
-```
-
 ## Quick Start
 
 ### 1. Download Models and Datasets
 
 ```bash
-# Download default model and dataset
-python scripts/download.py --all
-
-# Download specific model
+# Download model
 python scripts/download.py --model InstaDeepAI/nucleotide-transformer-2.5b-1000g
 
-# Download specific dataset
+# Download dataset
 python scripts/download.py --dataset InstaDeepAI/nucleotide_transformer_downstream_tasks_revised
-```
 
 ### 2. Train a Model
+# Basic training
+accelerate launch scripts/train_nucleotide_transformer.py
+```
+### Training hyperparameters can be found: 
+./scripts/train_nucleotide_transformer.py (line 15-20)
 
 ```bash
-# Basic training
-python scripts/train.py --model nucleotide-transformer --epochs 3
+DATASET_PATH = "./datasets/nucleotide_transformer_downstream_tasks_revised"
+MODEL_PATH = "./models/InstaDeepAI/nucleotide-transformer-2.5b-1000g"
+MODEL_ID = "InstaDeepAI/nucleotide-transformer-2.5b-multi-species"  # Fallback
+QUANTIZATION_TYPE = "none"  # Can be "4bit", "8bit", or "none"
+SAVE_PATH = f"./trained_models/"
+TRAINING_TASK = [] # Leave empty to train all tasks, or ["promoter_all", "enhancer_all"] for the specific tasks you want to train 
 
-# Training with configuration file
-python scripts/train.py --config config/training/default.yaml
-
-# Fine-tuning with frozen backbone
-python scripts/train.py --freeze-backbone --learning-rate 1e-4
 ```
 
-### 3. Quantize a Model
 
 ```bash
+### 3. Quantize a Model
 # BitsAndBytes 4-bit quantization
 python scripts/quantize.py --method bnb --bits 4
 

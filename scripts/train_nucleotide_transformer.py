@@ -1,16 +1,127 @@
 from datasets import load_dataset
 from transformers import (
     AutoTokenizer, AutoModelForSequenceClassification,
-    TrainingArguments, Trainer
+    TrainingArguments, Trainer, AutoConfig
 )
 import numpy as np
 import torch
 import os
-from load_bnb_nucleotide_transformer import load_model
 from accelerate import Accelerator
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 from transformers import TrainerCallback
+
+
+DATASET_PATH = "./datasets/nucleotide_transformer_downstream_tasks_revised"
+MODEL_PATH = "./models/InstaDeepAI/nucleotide-transformer-2.5b-1000g"
+MODEL_ID = "InstaDeepAI/nucleotide-transformer-2.5b-multi-species"  # Fallback
+QUANTIZATION_TYPE = "none"  # Can be "4bit", "8bit", or "none"
+BASE_SAVE_PATH = f"./trained_models/"
+TRAINING_TASK = [] # Leave empty to train all tasks, or ["promoter_all", "enhancer_all"] for the specific tasks you want to train 
+
+
+def load_model(model_id, quantization_type="4bit", trained_model_path=None, local_model_path=None, reinitialize_classifier=True):
+    """
+    Load the nucleotide transformer model with optional quantization.
+    
+    Args:
+        model_id (str): HuggingFace model identifier (fallback)
+        quantization_type (str): Either "4bit", "8bit", or "none"
+        trained_model_path (str): Path to trained model weights (optional)
+        local_model_path (str): Path to local model directory (optional)
+        reinitialize_classifier (bool): Whether to reinitialize classifier weights (default: True)
+    
+    Returns:
+        torch.nn.Module: Model (quantized or full precision)
+    """
+    # Check if we should load a trained model
+    if trained_model_path and os.path.exists(trained_model_path):
+        print(f"Loading trained model from {trained_model_path}...")
+        # Load trained model configuration
+        config = AutoConfig.from_pretrained(trained_model_path)
+        
+        if quantization_type == "none":
+            print(f"Loading trained model without quantization (full precision)...")
+            # IMPORTANT: Avoid device_map="auto" for training to prevent tensor sharding across GPUs
+            model = AutoModelForSequenceClassification.from_pretrained(
+                trained_model_path,
+                config=config,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+            )
+        else:
+            print(f"Loading trained model with {quantization_type} quantization...")
+            empty_model = AutoModelForSequenceClassification.from_config(config)
+            
+            # Initialize classifier weights for newly created model
+            if reinitialize_classifier:
+                initialize_classifier_weights(empty_model)
+            
+            print(f"Creating {quantization_type} quantization configuration...")
+            bnb_config = create_quantization_config(quantization_type)
+            
+            print(f"Loading and quantizing trained model with {quantization_type} precision...")
+            model = load_and_quantize_model(
+                empty_model, 
+                weights_location=trained_model_path, 
+                bnb_quantization_config=bnb_config
+            )
+    else:
+        # Determine which model to load: local first, then HuggingFace
+        model_path = None
+        if local_model_path and os.path.exists(local_model_path):
+            model_path = local_model_path
+            print(f"Loading model from local directory: {model_path}")
+        else:
+            model_path = model_id
+            print(f"Local model not found, loading from Hugging Face: {model_path}")
+            if local_model_path:
+                print(f"Consider running download_nucleotide_transformer.py to save model locally at {local_model_path}")
+        
+        # Load model configuration
+        print(f"Loading model configuration...")
+        config = AutoConfig.from_pretrained(model_path)
+        
+        if quantization_type == "none":
+            print(f"Loading model without quantization (full precision)...")
+            # IMPORTANT: Avoid device_map="auto" for training to prevent tensor sharding across GPUs
+            model = AutoModelForSequenceClassification.from_pretrained(
+                model_path,
+                config=config,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+            )
+            
+            # Initialize classifier weights for newly loaded model
+            # This ensures proper initialization even when loading from pretrained weights
+            # if the classifier was not properly initialized in the original model
+            if reinitialize_classifier:
+                initialize_classifier_weights(model)
+        else:
+            if model_path == model_id:
+                # Download from HuggingFace
+                print(f"Downloading model weights for {model_id}...")
+                weights_location = snapshot_download(repo_id=model_id)
+            else:
+                # Use local model
+                weights_location = model_path
+                print(f"Using local model weights from {weights_location}")
+            
+            empty_model = AutoModelForSequenceClassification.from_config(config)
+            
+            # Initialize classifier weights for newly created model
+            if reinitialize_classifier:
+                initialize_classifier_weights(empty_model)
+            
+            print(f"Creating {quantization_type} quantization configuration...")
+            bnb_config = create_quantization_config(quantization_type)
+            
+            print(f"Loading and quantizing model with {quantization_type} precision...")
+            model = load_and_quantize_model(
+                empty_model, 
+                weights_location=weights_location, 
+                bnb_quantization_config=bnb_config
+            )
+    
+    return model
 
 class TensorBoardCallback(TrainerCallback):
     """Custom callback to log additional metrics to TensorBoard"""
@@ -155,7 +266,7 @@ The script will automatically:
 - Create a launch script for easy multi-GPU training
 """
 
-TASK = "promoter_all"  # <- change to any task listed in the dataset card
+
 
 # Check for available GPUs and configure multi-GPU training
 def setup_multi_gpu():
@@ -180,7 +291,7 @@ def setup_multi_gpu():
 accelerator, use_multi_gpu = setup_multi_gpu()
 
 # Load dataset from local directory
-DATASET_PATH = "./datasets/nucleotide_transformer_downstream_tasks_revised"
+
 if os.path.exists(DATASET_PATH):
     print(f"Loading dataset from local directory: {DATASET_PATH}")
     # Load from individual arrow files to preserve structure
@@ -212,10 +323,6 @@ def train_single_task(task_name: str):
     label2id = {v: k for k, v in id2label.items()}
     
     # Model configuration - try local first, fallback to Hugging Face
-    MODEL_PATH = "./models/nucleotide-transformer-2.5b-1000g"
-    MODEL_ID = "InstaDeepAI/nucleotide-transformer-2.5b-1000g"  # Fallback
-    QUANTIZATION_TYPE = "none"  # Can be "4bit", "8bit", or "none"
-    SAVE_PATH = f"./trained_models/{task_name}"
     
     # Load tokenizer from local directory if available
     if os.path.exists(MODEL_PATH):
@@ -337,7 +444,7 @@ def train_single_task(task_name: str):
             return out
 
     args = TrainingArguments(
-        output_dir=SAVE_PATH,
+        output_dir=f"{BASE_SAVE_PATH}/{task_name}",
         eval_strategy="steps",
         eval_steps=100,
         save_steps=500,
@@ -401,17 +508,17 @@ def train_single_task(task_name: str):
     print(f"\nFinal evaluation metrics: {metrics}")
 
     # Save the trained model
-    print(f"Saving trained model to {SAVE_PATH}...")
-    os.makedirs(SAVE_PATH, exist_ok=True)
+    print(f"Saving trained model to {f"{BASE_SAVE_PATH}/{task_name}"}...")
+    os.makedirs(f"{BASE_SAVE_PATH}/{task_name}", exist_ok=True)
 
     # Save model and tokenizer
-    trainer.save_model(SAVE_PATH)
-    tokenizer.save_pretrained(SAVE_PATH)
+    trainer.save_model(f"{BASE_SAVE_PATH}/{task_name}")
+    tokenizer.save_pretrained(f"{BASE_SAVE_PATH}/{task_name}")
 
     # Also save the model configuration
-    model.config.save_pretrained(SAVE_PATH)
+    model.config.save_pretrained(f"{BASE_SAVE_PATH}/{task_name}")
 
-    print(f"Model saved successfully to {SAVE_PATH}")
+    print(f"Model saved successfully to {f"{BASE_SAVE_PATH}/{task_name}"}")
     print("You can now load this trained model using load_bnb_nucleotide_transformer.py with --trained-model-path")
     
     print(f"\n📊 TensorBoard logs saved to: ./tensorboard_logs/{task_name}")
@@ -450,7 +557,10 @@ if use_multi_gpu:
     create_launch_script()
 
 # Determine all tasks and run training for each
-all_tasks = sorted(set(raw["train"]["task"]))
+if len(TRAINING_TASK) == 0:
+    all_tasks = sorted(set(raw["train"]["task"]))
+else:
+    all_tasks = TRAINING_TASK
 print(f"\nDiscovered {len(all_tasks)} tasks: {all_tasks}")
 for t in all_tasks:
     train_single_task(t)
