@@ -4,7 +4,7 @@ Training script for genomic language models.
 
 Example usage:
     python scripts/train.py --model nucleotide-transformer --config config/training.yaml
-    python scripts/train.py --model nucleotide-transformer --freeze-backbone --epochs 3
+    python scripts/train.py --model nucleotide-transformer --freeze-backbone --epochs 3 --task promoter_tata
 """
 
 import argparse
