@@ -6,7 +6,7 @@ import torch
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForSequenceClassification, AutoTokenizer
 
 from .base import BaseQuantizer, QuantizationConfig
-from ..models.base import BaseModel
+from ..model.base import BaseModel
 
 
 @dataclass
@@ -99,17 +99,31 @@ class LLMCompressorQuantizer(BaseQuantizer):
             )
             
         print(f"Applying {self.config.method.upper()} quantization...")
+        print("This may take some time depending on model size...")
         
         # Create the appropriate modifier based on config type
         modifier = self._create_modifier()
         
-        # Apply quantization
-        quantized_model = oneshot(
+        # Determine max sequence length from dataset or use default
+        max_seq_length = 2048
+        if calibration_samples is not None and len(calibration_samples) > 0:
+            # Get max length from first sample
+            first_sample = calibration_samples[0]
+            if 'input_ids' in first_sample:
+                max_seq_length = len(first_sample['input_ids'])
+        
+        # Apply quantization following the pattern from load_gptq_nucleotide_transformer.py
+        # oneshot() modifies the model in-place
+        oneshot(
             model=model.model,
-            recipe=modifier,
             dataset=calibration_samples,
-            max_samples=self.config.calibration_samples
+            recipe=modifier,
+            max_seq_length=max_seq_length,
+            num_calibration_samples=self.config.calibration_samples,
         )
+        
+        # Model is now quantized in-place
+        quantized_model = model.model
         
         # Enable generation mode if available
         try:
@@ -165,7 +179,6 @@ class LLMCompressorQuantizer(BaseQuantizer):
         try:
             from llmcompressor.modifiers.quantization import QuantizationModifier, GPTQModifier
             from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-            from llmcompressor.modifiers.awq import AWQModifier
         except ImportError:
             raise ImportError("llmcompressor modifiers not available")
             
@@ -191,26 +204,27 @@ class LLMCompressorQuantizer(BaseQuantizer):
                 ),
                 GPTQModifier(
                     targets="Linear",
-                    bits=8,
+                    scheme="W8A8",  # Use preset scheme name instead of bits parameter
                     ignore=self.config.ignore or ["esm.embeddings", "esm.contact_head", "lm_head", "classifier"]
                 )
             ]
             
         elif isinstance(self.config, GPTQConfig):
+            # Use GPTQModifier with preset scheme (following load_gptq_nucleotide_transformer.py)
+            # The scheme should be a preset name like "W4A16" for 4-bit weights with 16-bit activations
+            scheme_name = f"W{self.config.bits}A16"  # e.g., "W4A16" or "W8A16"
             return GPTQModifier(
                 targets="Linear",
-                bits=self.config.bits,
-                group_size=self.config.group_size,
-                damp_percent=self.config.damp_percent,
+                scheme=scheme_name,
                 ignore=self.config.ignore or ["esm.embeddings", "esm.contact_head", "lm_head", "classifier"]
             )
             
         elif isinstance(self.config, AWQConfig):
-            return AWQModifier(
+            # AWQ uses a preset scheme similar to GPTQ
+            scheme_name = f"W{self.config.bits}A16"  # e.g., "W4A16" or "W8A16"
+            return GPTQModifier(
                 targets="Linear",
-                bits=self.config.bits,
-                group_size=self.config.group_size,
-                zero_point=self.config.zero_point,
+                scheme=scheme_name,
                 ignore=self.config.ignore or ["esm.embeddings", "esm.contact_head", "lm_head", "classifier"]
             )
             

@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, Tuple
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizer
 
-from ..models.base import BaseModel
+from ..model.base import BaseModel
 
 
 @dataclass
@@ -108,7 +108,7 @@ class BaseQuantizer(ABC):
             
         return stats
     
-    def prepare_calibration_data(self, dataset, tokenizer, max_samples: Optional[int] = None) -> list:
+    def prepare_calibration_data(self, dataset, tokenizer, max_samples: Optional[int] = None):
         """
         Prepare calibration dataset for quantization.
         
@@ -118,10 +118,21 @@ class BaseQuantizer(ABC):
             max_samples: Maximum number of samples to use
             
         Returns:
-            List of tokenized samples
+            Dataset or dict with tokenized samples
         """
         max_samples = max_samples or self.config.calibration_samples
         
+        # Check if dataset is already tokenized (has input_ids)
+        if len(dataset) > 0 and 'input_ids' in dataset[0]:
+            print("Dataset is already tokenized, using directly for calibration")
+            # Dataset is already tokenized, just select the samples we need
+            num_samples = min(max_samples, len(dataset))
+            
+            # Return a subset of the dataset (keeps it as a Dataset object)
+            # This works with llmcompressor which expects a Dataset with column_names
+            return dataset.select(range(num_samples))
+        
+        # Dataset is not tokenized, extract text and tokenize
         texts = []
         for idx, item in enumerate(dataset):
             if idx >= max_samples:

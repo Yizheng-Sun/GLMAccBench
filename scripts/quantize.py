@@ -3,9 +3,14 @@
 Quantization script for genomic language models.
 
 Example usage:
+    # BitsAndBytes quantization (fast, no calibration needed)
     python scripts/quantize.py --method bnb --bits 4
-    python scripts/quantize.py --method w4a16 --output quantized_models/w4a16
+    
+    # GPTQ quantization (requires calibration data)
     python scripts/quantize.py --method gptq --calibration-samples 512
+    
+    # Other methods
+    python scripts/quantize.py --method w4a16 --output quantized_models/w4a16
 """
 
 import argparse
@@ -13,7 +18,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.models import NucleotideTransformer, NucleotideTransformerConfig
+from src.model import NucleotideTransformer, NucleotideTransformerConfig
 from src.quantization import (
     BitsAndBytesQuantizer, BnBConfig,
     LLMCompressorQuantizer, W4A4Config, W4A16Config, W8A8Config, GPTQConfig, AWQConfig
@@ -197,8 +202,17 @@ def main():
             train_samples=config_dict.get('calibration_samples', 512)
         )
         data_loader = DataLoader(data_config)
-        dataset = data_loader.load()
-        train_dataset, _ = data_loader.get_splits()
+        data_loader.load()
+        
+        # Get first available task for calibration data
+        available_tasks = data_loader.get_available_tasks()
+        if not available_tasks:
+            raise ValueError("No tasks found in calibration dataset")
+        task_name = available_tasks[0]
+        print(f"Using task '{task_name}' for calibration")
+        
+        # Prepare calibration data
+        train_dataset, _ = data_loader.prepare_task_data(task_name, model.tokenizer)
         calibration_data = train_dataset
     
     # Perform quantization

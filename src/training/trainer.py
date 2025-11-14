@@ -11,7 +11,7 @@ from transformers import (
 )
 from datasets import Dataset
 
-from ..models.base import BaseModel
+from ..model.base import BaseModel
 from ..utils.memory import print_gpu_memory_usage, get_model_memory_footprint
 
 
@@ -65,7 +65,7 @@ class TrainingConfig:
             weight_decay=self.weight_decay,
             logging_dir=self.logging_dir,
             logging_steps=self.logging_steps,
-            evaluation_strategy=self.evaluation_strategy,
+            eval_strategy=self.evaluation_strategy,
             eval_steps=self.eval_steps,
             save_strategy=self.save_strategy,
             save_steps=self.save_steps,

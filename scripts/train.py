@@ -12,7 +12,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.models import NucleotideTransformer, NucleotideTransformerConfig
+from src.model import NucleotideTransformer, NucleotideTransformerConfig
 from src.data import DataLoader, DataConfig
 from src.training import GenomicTrainer, TrainingConfig
 from src.utils import load_config, save_config
@@ -147,9 +147,34 @@ def main():
     # Load and preprocess data
     print(f"Loading dataset: {data_config.dataset_name}")
     data_loader = DataLoader(data_config)
-    dataset = data_loader.load()
-    dataset = data_loader.preprocess(model.tokenizer)
-    train_dataset, eval_dataset = data_loader.get_splits()
+    data_loader.load()
+    
+    # Check if task is specified
+    if not data_config.task_name:
+        # List available tasks and use the first one
+        available_tasks = data_loader.get_available_tasks()
+        print(f"Available tasks: {available_tasks}")
+        if not available_tasks:
+            raise ValueError("No tasks found in dataset")
+        data_config.task_name = available_tasks[0]
+        print(f"No task specified, using: {data_config.task_name}")
+    
+    # Prepare task-specific data
+    train_dataset, eval_dataset = data_loader.prepare_task_data(
+        data_config.task_name, 
+        model.tokenizer
+    )
+    
+    # Update model config with correct number of labels
+    num_labels = data_loader.get_num_labels(data_config.task_name)
+    id2label, label2id = data_loader.get_label_mappings(data_config.task_name)
+    print(f"Task '{data_config.task_name}' has {num_labels} labels")
+    
+    # Update model configuration
+    model.model.config.num_labels = num_labels
+    model.model.config.id2label = id2label
+    model.model.config.label2id = label2id
+    model.model.config.problem_type = "single_label_classification"
     
     # Create training configuration
     training_config = TrainingConfig(

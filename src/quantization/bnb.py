@@ -3,11 +3,13 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Any
 import torch
-from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForSequenceClassification, AutoTokenizer
+from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForSequenceClassification, AutoTokenizer, AutoConfig
 from accelerate.utils import BnbQuantizationConfig, load_and_quantize_model
+from huggingface_hub import snapshot_download
+import os
 
 from .base import BaseQuantizer, QuantizationConfig
-from ..models.base import BaseModel
+from ..model.base import BaseModel
 
 
 @dataclass
@@ -60,13 +62,28 @@ class BitsAndBytesQuantizer(BaseQuantizer):
         
         print(f"Applying BitsAndBytes {self.config.bits}-bit quantization...")
         
-        # Load model with quantization config
-        quantized_model = AutoModelForSequenceClassification.from_pretrained(
-            model_path,
-            num_labels=model.config.num_labels,
-            quantization_config=bnb_config,
-            device_map="auto",
-            trust_remote_code=model.config.trust_remote_code
+        # Follow the pattern from load_bnb_nucleotide_transformer.py
+        # 1. Load model configuration
+        config = AutoConfig.from_pretrained(model_path)
+        config.num_labels = model.config.num_labels
+        
+        # 2. Determine weights location (local or download from HF)
+        if os.path.exists(model_path):
+            weights_location = model_path
+            print(f"Using local model weights from {weights_location}")
+        else:
+            print(f"Downloading model weights for {model_path}...")
+            weights_location = snapshot_download(repo_id=model_path)
+        
+        # 3. Create empty model from config
+        empty_model = AutoModelForSequenceClassification.from_config(config)
+        
+        # 4. Load and quantize using accelerate
+        print(f"Loading and quantizing model with {self.config.bits}-bit precision...")
+        quantized_model = load_and_quantize_model(
+            empty_model,
+            weights_location=weights_location,
+            bnb_quantization_config=bnb_config
         )
         
         # Prepare for training if needed
@@ -78,7 +95,19 @@ class BitsAndBytesQuantizer(BaseQuantizer):
         
         print(f"✅ Model quantized with BitsAndBytes {self.config.bits}-bit")
         
-        # Print memory footprint
+        # Clean up original model to get accurate memory footprint
+        # Delete the original model and empty model references
+        if model.model is not None:
+            del model.model
+            model.model = None
+        if 'empty_model' in locals():
+            del empty_model
+        
+        # Clear GPU cache for accurate measurement
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Print memory footprint (now only includes quantized model)
         memory_stats = self.get_memory_footprint(quantized_model)
         print(f"Memory footprint: {memory_stats}")
         
@@ -102,12 +131,33 @@ class BitsAndBytesQuantizer(BaseQuantizer):
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         
-        # Load model with quantization config
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_path,
-            quantization_config=bnb_config,
-            device_map="auto"
+        # Follow the pattern from load_bnb_nucleotide_transformer.py
+        # 1. Load model configuration
+        config = AutoConfig.from_pretrained(model_path)
+        
+        # 2. Determine weights location
+        if os.path.exists(model_path):
+            weights_location = model_path
+        else:
+            weights_location = snapshot_download(repo_id=model_path)
+        
+        # 3. Create empty model from config
+        empty_model = AutoModelForSequenceClassification.from_config(config)
+        
+        # 4. Load and quantize using accelerate
+        model = load_and_quantize_model(
+            empty_model,
+            weights_location=weights_location,
+            bnb_quantization_config=bnb_config
         )
+        
+        # Clean up empty model reference
+        if 'empty_model' in locals():
+            del empty_model
+        
+        # Clear GPU cache for accurate memory state
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         print(f"✅ BitsAndBytes quantized model loaded")
         
