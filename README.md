@@ -59,16 +59,13 @@ TRAINING_TASK = [] # Leave empty to train all tasks, or ["promoter_all", "enhanc
 # BitsAndBytes 4-bit quantization
 python scripts/quantize.py --method bnb --bits 4 --model-path <path_to_model folder>
 e.g. python scripts/quantize.py --method bnb --bits 4 --model-path GLMAccBench/results/checkpoint-1521
+e.g. python scripts/quantize.py --method bnb --bits 8 --model-path GLMAccBench/results/checkpoint-1521
 
 # W4A16 quantization with LLMCompressor
 python scripts/quantize.py --method w4a16 --output quantized_models/w4a16
-
-# GPTQ quantization with custom settings
-python scripts/quantize.py --method gptq --bits 4 --group-size 128
-
-# Load pre-quantized model
-python scripts/quantize.py --method w4a16 --quantized-model-path ./quantized_models/w4a16
-```
+e.g. python scripts/quantize.py --method w4a16 --output quantized_models/w4a16 --model-path GLMAccBench/results/checkpoint-1521
+e.g. python scripts/quantize.py --method NVFP4 --output quantized_models/w4a4 --model-path GLMAccBench/results/checkpoint-1521
+e.g. python scripts/quantize.py --method w8a8 --output quantized_models/w8a8 --model-path GLMAccBench/results/checkpoint-1521
 
 ### 4. Evaluate Models
 

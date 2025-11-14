@@ -176,57 +176,50 @@ class LLMCompressorQuantizer(BaseQuantizer):
     
     def _create_modifier(self):
         """Create the appropriate modifier based on config type."""
-        try:
-            from llmcompressor.modifiers.quantization import QuantizationModifier, GPTQModifier
-            from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-        except ImportError:
-            raise ImportError("llmcompressor modifiers not available")
+        from llmcompressor.modifiers.quantization import QuantizationModifier, GPTQModifier
+        from llmcompressor.modifiers.awq import AWQModifier
             
         if isinstance(self.config, W4A4Config):
+            print("**************** Creating W4A4 modifier ****************")
             return QuantizationModifier(
                 targets="Linear",
-                scheme="W4A4",
-                ignore=self.config.ignore or ["esm.embeddings", "esm.contact_head", "lm_head", "classifier"]
+                scheme="NVFP4",
+                ignore=["lm_head", "classifier"]
             )
             
         elif isinstance(self.config, W4A16Config):
             return QuantizationModifier(
                 targets="Linear",
-                scheme="W4A16",
-                ignore=self.config.ignore or ["esm.embeddings", "esm.contact_head", "lm_head", "classifier"]
+                scheme="NVFP4A16",
+                ignore=["lm_head"]
             )
             
         elif isinstance(self.config, W8A8Config):
             return [
-                SmoothQuantModifier(
-                    alpha=self.config.smoothquant_alpha,
-                    ignore=self.config.ignore or ["esm.embeddings", "esm.contact_head", "lm_head", "classifier"]
-                ),
                 GPTQModifier(
                     targets="Linear",
                     scheme="W8A8",  # Use preset scheme name instead of bits parameter
-                    ignore=self.config.ignore or ["esm.embeddings", "esm.contact_head", "lm_head", "classifier"]
+                    ignore=["lm_head"]
                 )
             ]
             
         elif isinstance(self.config, GPTQConfig):
+            print("**************** Creating GPTQ modifier ****************")
             # Use GPTQModifier with preset scheme (following load_gptq_nucleotide_transformer.py)
             # The scheme should be a preset name like "W4A16" for 4-bit weights with 16-bit activations
-            scheme_name = f"W{self.config.bits}A16"  # e.g., "W4A16" or "W8A16"
             return GPTQModifier(
                 targets="Linear",
-                scheme=scheme_name,
-                ignore=self.config.ignore or ["esm.embeddings", "esm.contact_head", "lm_head", "classifier"]
+                scheme="W4A16",
+                ignore=["classifier"]
             )
             
         elif isinstance(self.config, AWQConfig):
             # AWQ uses a preset scheme similar to GPTQ
             scheme_name = f"W{self.config.bits}A16"  # e.g., "W4A16" or "W8A16"
-            return GPTQModifier(
-                targets="Linear",
-                scheme=scheme_name,
-                ignore=self.config.ignore or ["esm.embeddings", "esm.contact_head", "lm_head", "classifier"]
-            )
+            return AWQModifier(
+                ignore=["classifier"],  # Don't quantize the classification head
+                scheme="W4A16_ASYM",    # 4-bit asymmetric quantization
+                targets=["Linear"])      # Target linear layers),
             
         else:
             raise ValueError(f"Unknown quantization config type: {type(self.config)}")

@@ -180,6 +180,7 @@ def prepare_calibration_data(tokenizer, dataset_path=None, num_samples=256, max_
                 ds = ds.select(range(num_samples))
             
             ds = ds.shuffle(seed=42)
+            print(f"Shuffled dataset with {len(ds)} samples")
             
             def preprocess_nucleotide(example):
                 """Convert nucleotide sequence to text format expected by tokenizer"""
