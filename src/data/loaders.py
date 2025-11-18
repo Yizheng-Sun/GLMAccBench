@@ -6,6 +6,7 @@ import os
 from datasets import load_dataset, load_from_disk, Dataset, DatasetDict
 from transformers import PreTrainedTokenizer
 import torch
+from datasets import load_from_disk
 
 
 @dataclass
@@ -71,22 +72,12 @@ class DataLoader:
         # Load from local path if it exists
         if self.config.dataset_path and os.path.exists(self.config.dataset_path):
             print(f"Loading dataset from local directory: {self.config.dataset_path}")
-            
-            # Try loading from arrow files first (preserves structure better)
-            train_arrow = f'{self.config.dataset_path}/train/data-00000-of-00001.arrow'
-            test_arrow = f'{self.config.dataset_path}/test/data-00000-of-00001.arrow'
-            
-            if os.path.exists(train_arrow) and os.path.exists(test_arrow):
-                train_data = load_dataset('arrow', data_files=train_arrow)['train']
-                test_data = load_dataset('arrow', data_files=test_arrow)['train']
-                self.raw_dataset = {'train': train_data, 'test': test_data}
-            else:
-                # Fallback to load_from_disk
-                dataset_dict = load_from_disk(self.config.dataset_path)
-                self.raw_dataset = {
-                    'train': dataset_dict['train'],
-                    'test': dataset_dict['test']
-                }
+            dataset_dict = load_from_disk(self.config.dataset_path)
+            self.raw_dataset = {
+                'train': dataset_dict['train'],
+                'test': dataset_dict['test']
+            }
+
         else:
             # Load from HuggingFace Hub
             print(f"Loading dataset from HuggingFace: {self.config.dataset_name}")

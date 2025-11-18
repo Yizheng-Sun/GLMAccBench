@@ -19,9 +19,9 @@ from .base import BaseModel, ModelConfig
 class NucleotideTransformerConfig(ModelConfig):
     """Configuration specific to Nucleotide Transformer models."""
     
-    model_name: str = "InstaDeepAI/nucleotide-transformer-2.5b-1000g"
-    max_length: int = 6000  # Nucleotide sequences can be longer
-    reinitialize_classifier: bool = True
+    model_name: str = None
+    max_length: int = None
+    reinitialize_classifier: bool = None
 
 
 class NucleotideTransformer(BaseModel):
@@ -36,6 +36,7 @@ class NucleotideTransformer(BaseModel):
         """
         super().__init__(config)
         self.config: NucleotideTransformerConfig = config
+        self.model_path = config.model_path
         
     def load(self) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
         """
@@ -45,15 +46,13 @@ class NucleotideTransformer(BaseModel):
             Tuple of (model, tokenizer)
         """
         # Determine model source
-        model_path = self._get_model_path()
+        model_path = self.model_path
         
         print(f"Loading Nucleotide Transformer from: {model_path}")
         
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
-            model_path,
-            trust_remote_code=self.config.trust_remote_code,
-            cache_dir=self.config.cache_dir
+            model_path
         )
         
         # Configure torch dtype
@@ -62,18 +61,8 @@ class NucleotideTransformer(BaseModel):
         # Load model
         self.model = AutoModelForSequenceClassification.from_pretrained(
             model_path,
-            num_labels=self.config.num_labels,
-            torch_dtype=torch_dtype,
-            device_map=self.config.device_map,
-            trust_remote_code=self.config.trust_remote_code,
-            cache_dir=self.config.cache_dir
+            num_labels=self.config.num_labels
         )
-        
-        # Reinitialize classifier if requested
-        if self.config.reinitialize_classifier:
-            print("Reinitializing classifier weights...")
-            self.initialize_classifier_weights()
-            
         print(f"Model loaded successfully!")
         print(f"Model type: {type(self.model)}")
         print(f"Number of parameters: {sum(p.numel() for p in self.model.parameters()):,}")
@@ -130,36 +119,6 @@ class NucleotideTransformer(BaseModel):
         self.model.save_pretrained(output_path)
         self.tokenizer.save_pretrained(output_path)
         print(f"✅ Model saved successfully")
-    
-    def download_from_hub(self, save_path: str) -> str:
-        """
-        Download model from Hugging Face Hub.
-        
-        Args:
-            save_path: Local directory to save the model
-            
-        Returns:
-            Path to the downloaded model
-        """
-        print(f"Downloading {self.config.model_name} from Hugging Face Hub...")
-        
-        os.makedirs(save_path, exist_ok=True)
-        
-        # Download using snapshot_download for efficiency
-        model_path = snapshot_download(
-            repo_id=self.config.model_name,
-            cache_dir=save_path,
-            ignore_patterns=["*.bin"]  # Skip old format files if present
-        )
-        
-        print(f"✅ Model downloaded to: {model_path}")
-        return model_path
-    
-    def _get_model_path(self) -> str:
-        """Determine the model path to use."""
-        if self.config.model_path and os.path.exists(self.config.model_path):
-            return self.config.model_path
-        return self.config.model_name
     
     def _get_torch_dtype(self):
         """Get the appropriate torch dtype."""

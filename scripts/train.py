@@ -45,7 +45,7 @@ def main():
     parser.add_argument("--model", type=str, default="nucleotide-transformer",
                        help="Model type to train")
     parser.add_argument("--model-name", type=str, 
-                       default="InstaDeepAI/nucleotide-transformer-2.5b-1000g",
+                       default=None,
                        help="HuggingFace model name or path")
     parser.add_argument("--model-path", type=str, default=None,
                        help="Local path to model")
