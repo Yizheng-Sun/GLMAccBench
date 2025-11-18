@@ -143,7 +143,7 @@ def main():
     if args.model:
         print(f"Working with model: {args.model}")
         if args.local_path is None and args.model is not None:
-            local_path = f"./models/{args.model}"
+            local_path = f"./models/{args.model.split('/')[-1]}"
         else:
             local_path = os.path.abspath(args.local_path)
         
@@ -175,7 +175,7 @@ def main():
     elif args.dataset:
         print(f"Working with dataset: {args.dataset}")
         if args.local_path is None and args.dataset is not None:
-            local_path = f"./datasets/{args.dataset}"
+            local_path = f"./datasets/{args.dataset.split('/')[-1]}"
         else:
             local_path = os.path.abspath(args.local_path)
         
